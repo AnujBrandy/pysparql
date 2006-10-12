@@ -12,13 +12,24 @@ Required: Python 2.4
 Recommended: isodate <http://www.mnot.net/python/isodate.py>
 Recommended: rdflib <http://rdflib.net/>
 
+
+USAGE
+    sparql.py [-i] endpoint
+        -i Interactive mode
+
+    If interactive mode is enabled, the program reads queries from the console
+    and then executes them. Use a double line (two 'enters') to separate queries.
+
+    Otherwise, the query is read from standard input.
+
+
 TODO: 
 - Process CONSTRUCT queries
 - Handle HTTP persistent connections
 - Add docstrings
 '''
 
-__version__ = 0.3
+__version__ = 0.4
 __copyright__ = "Copyright 2006, Juan Manuel Caicedo"
 __author__ = "Juan Manuel Caicedo <http://cavorite.com>"
 __contributors__ = ["Lee Feigenbaum ( lee AT thefigtrees DOT net )",
@@ -54,6 +65,7 @@ from urllib import urlencode
 
 import xml.sax
 
+#from __future__ import generators
 from xml.dom import pulldom
 
 
@@ -93,21 +105,20 @@ RESULTS_TYPES = {
 
 
 class _ServiceMixin:
-    method = 'GET'
-    endpoint = None
-    _default_graphs = []
-    _named_graphs = []
-    _prefix_map = {}
-    _headers_map = {}
 
     def __init__(self, endpoint):
+        self.method = 'GET'
         self.endpoint = endpoint
+        self._default_graphs = []
+        self._named_graphs = []
+        self._prefix_map = {}
 
+        self._headers_map = {}
         #TODO Handle other results types
         self._headers_map['Accept'] = RESULTS_TYPES['xml']
         self._headers_map['User-Agent'] = USER_AGENT
 
-        
+
     def addDefaultGraph(self, g):
         self._default_graphs.append(g)
     
@@ -187,7 +198,6 @@ class ResultsParser:
     '''
     Abstract query results parser
     '''
-    __fp = None
     
     def __init__(self, fp):
         self.__fp = fp
@@ -205,12 +215,12 @@ class DataReader(ResultsParser):
     
     def __repr__(self):
         return self.data
-    
+
 class Query(_ServiceMixin):
-    
+
     def __init__(self, service, resultsParser = None):
         _ServiceMixin.__init__(self, service.endpoint)
-        self.resultsParser = resultsParser  or self._PulldomResultsParser
+        self.resultsParser = resultsParser  or _PulldomResultsParser
 
     def _request(self, query):
         resultsType = 'xml'
@@ -224,7 +234,7 @@ class Query(_ServiceMixin):
     def query(self, query):
 
         response = self._request(query)
-        
+
         #TODO Return a boolean or a single value according to the query type
         return self.resultsParser(response.fp)
 
@@ -234,16 +244,17 @@ class Query(_ServiceMixin):
         parser = self._XmlAskParser()
         xml.sax.parse(response.fp, parser)
         return parser.value
-    
+
     def _queryString(self, query):
         args = []
         query = query.replace("\n", " ").encode('latin-1')
-        
-        pref = ' '.join(["PREFIX %s: <%s> " % (p, self._prefix_map[p]) for p in self._prefix_map])        
+
+        pref = ' '.join(["PREFIX %s: <%s> " % (p, self._prefix_map[p]) for p in self._prefix_map])
+ 
         query = pref + query
-        
+
         args.append(('query', query))
-        
+
         for uri in self.defaultGraphs():
             args.append(('default-graph-uri', uri))
 
@@ -252,64 +263,64 @@ class Query(_ServiceMixin):
 
         return urlencode(args)
 
-    class _XmlAskParser(xml.sax.handler.ContentHandler):
-        '''
-        XML ASK query results parser
-        '''
-    
-        value = False
-        _bool = False
-        
-        def startElement(self, name, attrs):
-            self._bool = name == 'boolean'
 
-        def endElement(self, name):
-            self._bool = False
-        
-        def characters(self, content):
-            if self._bool:
-                self.value = content == 'true'
+class _XmlAskParser(xml.sax.handler.ContentHandler):
+    '''
+    XML ASK query results parser
+    '''
+    value = False
+    _bool = False
+
+    def startElement(self, name, attrs):
+        self._bool = name == 'boolean'
+
+    def endElement(self, name):
+        self._bool = False
+
+    def characters(self, content):
+        if self._bool:
+            self.value = content == 'true'
 
 
-    class _PulldomResultsParser:
-        '''
-        Improved parser, using pulldown api and generators
-        '''
-        __fp = None
-        _vals = []
-        variables = []
-    
-        def __init__(self, fp):
-            self.__fp = fp
-    
-        def __iter__(self):
-            return self.values()
-    
-        def values(self):
-            events = pulldom.parse(self.__fp)
-            
-            idx = -1
-    
-            for (event, node) in events:
-                if event == pulldom.START_ELEMENT:
-    
-                    if node.tagName == 'variable':
-                        self.variables.append(node.attributes['name'].value)
-                    elif node.tagName == 'result':
-                        self._vals = [None] *  len(self.variables)
-                    elif node.tagName == 'binding':
-                        idx = self.variables.index(node.attributes['name'].value)
-                    elif node.tagName == 'uri':
-                        events.expandNode(node)
-                        self._vals[idx] = _castUri(node.firstChild.data)
-                    elif node.tagName == 'literal':
-                        events.expandNode(node)
-                        type = node.attributes.get('datatype', 'http:://www.w3.org/2001/XMLSchema#string')
-                        self._vals[idx] = _castLiteral(node.firstChild.data, type)
-    
-                elif event == pulldom.END_ELEMENT:
-                    if node.tagName == 'result':
-                        yield tuple(self._vals)
+class _PulldomResultsParser:
+    '''
+    Improved parser, using pulldown api and generators
+    '''
+
+    def __init__(self, fp):
+        self.__fp = fp
+        self._vals = []
+        self.variables = []
+
+    def __iter__(self):
+        return self.values()
+
+    def values(self):
+        events = pulldom.parse(self.__fp)
+
+        idx = -1
+
+        for (event, node) in events:
+            if event == pulldom.START_ELEMENT:
+
+                if node.tagName == 'variable':
+                    self.variables.append(node.attributes['name'].value)
+                elif node.tagName == 'result':
+                    self._vals = [None] *  len(self.variables)
+                elif node.tagName == 'binding':
+                    idx = self.variables.index(node.attributes['name'].value)
+                elif node.tagName == 'uri':
+                    events.expandNode(node)
+                    self._vals[idx] = _castUri(node.firstChild.data)
+                elif node.tagName == 'literal':
+                    events.expandNode(node)
+                    type = node.attributes.get('datatype', 'http:://www.w3.org/2001/XMLSchema#string')
+                    self._vals[idx] = _castLiteral(node.firstChild.data, type)
+
+            elif event == pulldom.END_ELEMENT:
+                if node.tagName == 'result':
+                    #print "rtn:", len(self._vals), self._vals
+                    yield tuple(self._vals)
 
 
 def query(endpoint, query):
@@ -318,22 +329,63 @@ def query(endpoint, query):
     '''
     s = Service(endpoint)
     return s.query(query)
-    
+
+
+def __interactive(endpoint):
+    while True:
+        try:
+            lines = []
+            while True:
+                next = raw_input()
+                if not next:
+                    break
+                else:
+                    lines.append(next)
+
+            if lines:
+                sys.stdout.write("Quering...")
+                result = query(endpoint, " ".join(lines))
+                sys.stdout.write("  done\n")
+
+                for row in result.values():
+                    print "\t".join(map(unicode,row))
+
+                print
+                lines = []
+
+        except Exception, e:
+            sys.stderr.write(str(e))
+
+
 
 if __name__ == '__main__':
     import sys
-    
-    if not sys.argv[1:]:
-        print __doc__
-        sys.exit(0)
-    else:
-        endpoint = sys.argv[1]
-        q = sys.argv[2]
+    import codecs
+    from optparse import OptionParser
 
-    from pprint import pprint
-    
+    try:
+        c = codecs.getwriter(sys.stdout.encoding)
+    except:
+        c = codecs.getwriter('ascii')
+    sys.stdout = c(sys.stdout, 'replace')
+
+
+    parser = OptionParser(usage="%prog [-i] endpoint",
+        version="%prog " + str(__version__))
+    parser.add_option("-i", dest="interactive", action="store_true",
+                help="Enables interactive mode")
+
+    (options, args) = parser.parse_args()
+
+    if len(args) != 1:
+        parser.error("Endoint must be specified")
+
+    endpoint = sys.argv[1]
+
+    if options.interactive:
+        __interactive(endoint)
+
+    q = sys.stdin.read()
     result = query(endpoint, q)
-
-    print
-    pprint(result.values())
-    print
+    for row in result.values():
+        print "\t".join(map(unicode,row))
