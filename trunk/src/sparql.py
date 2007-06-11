@@ -33,7 +33,8 @@ __version__ = 0.4
 __copyright__ = "Copyright 2006, Juan Manuel Caicedo"
 __author__ = "Juan Manuel Caicedo <http://cavorite.com>"
 __contributors__ = ["Lee Feigenbaum ( lee AT thefigtrees DOT net )",
-                    "Elias Torres   ( elias AT torrez DOT us )"]
+                    "Elias Torres   ( elias AT torrez DOT us )",
+                    "Luis Miguel Morillas"]
 
 __license__ = """
 Copyright (c) 2006, Juan Manuel Caicedo <juan AT cavorite com>
@@ -65,7 +66,6 @@ from urllib import urlencode
 
 import xml.sax
 
-#from __future__ import generators
 from xml.dom import pulldom
 
 
@@ -84,7 +84,7 @@ try:
     _parseDateTime = parse_datetime
 except:
     _parseDateTime = unicode
-    
+
 
 
 USER_AGENT =  "pySparql/%s +http://labs.cavorite.com/python/sparql/" % __version__
@@ -121,22 +121,22 @@ class _ServiceMixin:
 
     def addDefaultGraph(self, g):
         self._default_graphs.append(g)
-    
+
     def defaultGraphs(self):
         return self._default_graphs
-    
+
     def addNamedGraph(self, g):
         self._named_graphs.append(g)
-    
+
     def namedGraphs(self):
         return self._named_graphs
-    
+
     def setPrefix(self, prefix, uri):
         self._prefix_map[prefix] = uri
-        
+
     def prefixes(self):
         return self._prefix_map
-    
+
     def headers(self):
         return self._headers_map
 
@@ -170,7 +170,7 @@ class Service(_ServiceMixin):
 #Date parsing functions
 def _parseDate(val):
     return _parseDateTime(val + 'T00:00:0Z')
-    
+
 
 #XMLSchema types and cast functions
 _types = {
@@ -198,7 +198,7 @@ class ResultsParser:
     '''
     Abstract query results parser
     '''
-    
+
     def __init__(self, fp):
         self.__fp = fp
 
@@ -209,10 +209,10 @@ class DataReader(ResultsParser):
     '''
     def __init__(self, fp):
         self.data = fp.read()
-        
+
     def __str__(self):
         return self.data
-    
+
     def __repr__(self):
         return self.data
 
@@ -230,7 +230,7 @@ class Query(_ServiceMixin):
 
         #TODO Handle exceptions
         return urlopen(request)
-    
+
     def query(self, query):
 
         response = self._request(query)
@@ -241,7 +241,7 @@ class Query(_ServiceMixin):
 
     def ask(self, query):
         response = self._request(query)
-        parser = self._XmlAskParser()
+        parser = _XmlAskParser()
         xml.sax.parse(response.fp, parser)
         return parser.value
 
@@ -250,7 +250,7 @@ class Query(_ServiceMixin):
         query = query.replace("\n", " ").encode('latin-1')
 
         pref = ' '.join(["PREFIX %s: <%s> " % (p, self._prefix_map[p]) for p in self._prefix_map])
- 
+
         query = pref + query
 
         args.append(('query', query))
